@@ -8,15 +8,15 @@ load_dotenv()
 
 RAKUTEN_API_URL = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706"
 
-# 曜日ごとのジャンルID（月=0, 火=1, ..., 日=6）
+# 曜日ごとのジャンルID・フォールバックキーワード（月=0, 火=1, ..., 日=6）
 GENRE_BY_WEEKDAY = {
-    0: ("551177", "抱っこ紐・ベビーカー"),
-    1: ("100804", "ベビー服・子供服"),
-    2: ("101164", "おもちゃ・知育玩具"),
-    3: ("400174", "離乳食・ベビーフード"),
-    4: ("400496", "ベビー用品全般"),
-    5: ("516503", "PCガジェット・マウス・キーボード"),
-    6: ("100533", "カメラ・育児グッズ"),
+    0: ("551177", "抱っこ紐・ベビーカー", "抱っこ紐"),
+    1: ("100804", "ベビー服・子供服", "ベビー服"),
+    2: ("101164", "おもちゃ・知育玩具", "おもちゃ"),
+    3: ("400174", "離乳食・ベビーフード", "離乳食"),
+    4: ("400496", "ベビー用品全般", "ベビー用品"),
+    5: ("516503", "PCガジェット", "キーボード"),
+    6: ("100533", "カメラ", "カメラ"),
 }
 
 # 除外キーワード（例外商品名に含まれる場合はスキップしない）
@@ -32,6 +32,22 @@ def _is_excluded(item_name: str) -> bool:
     return any(kw in name for kw in EXCLUDE_KEYWORDS)
 
 
+def _fetch_items(params: dict) -> list:
+    resp = requests.get(RAKUTEN_API_URL, params=params, timeout=10)
+    resp.raise_for_status()
+    return resp.json().get("Items", [])
+
+
+def _filter_items(items: list) -> list:
+    return [
+        item for item in items
+        if item.get("reviewAverage", 0) >= 3.5
+        and item.get("reviewCount", 0) >= 10
+        and item.get("mediumImageUrls")
+        and not _is_excluded(item.get("itemName", ""))
+    ]
+
+
 def get_random_baby_product(posted_urls=None):
     """商品を取得してランダムに1件返す。
     posted_urls: 投稿済みURLのset。全件投稿済みの場合はリセットして全件から選ぶ。
@@ -41,30 +57,25 @@ def get_random_baby_product(posted_urls=None):
         posted_urls = set()
 
     weekday = datetime.now().weekday()
-    genre_id, genre_name = GENRE_BY_WEEKDAY[weekday]
+    genre_id, genre_name, fallback_keyword = GENRE_BY_WEEKDAY[weekday]
 
-    params = {
+    base_params = {
         "applicationId": os.getenv("RAKUTEN_APP_ID"),
         "affiliateId": os.getenv("RAKUTEN_AFFILIATE_ID"),
-        "genreId": genre_id,
         "hits": 30,
         "sort": "-reviewAverage",
-        "minReviewCount": 50,
+        "minReviewCount": 10,
         "formatVersion": 2,
     }
 
-    resp = requests.get(RAKUTEN_API_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
+    # ジャンルID検索
+    items = _fetch_items({**base_params, "genreId": genre_id})
+    filtered = _filter_items(items)
 
-    items = data.get("Items", [])
-    filtered = [
-        item for item in items
-        if item.get("reviewAverage", 0) >= 4.0
-        and item.get("reviewCount", 0) >= 50
-        and item.get("mediumImageUrls")
-        and not _is_excluded(item.get("itemName", ""))
-    ]
+    # フォールバック：キーワード検索
+    if not filtered:
+        items = _fetch_items({**base_params, "keyword": fallback_keyword})
+        filtered = _filter_items(items)
 
     if not filtered:
         raise ValueError(f"条件に合う商品が見つかりませんでした（カテゴリ：{genre_name}）")
