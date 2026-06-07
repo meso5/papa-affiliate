@@ -1,10 +1,25 @@
 import logging
 import sys
+from datetime import datetime
 from rakuten import get_random_baby_product
 from caption import generate_caption
 from image import create_product_image
 from instagram import post_to_instagram
 from posted_products import load_posted_urls, save_posted_url, reset_posted_urls
+
+
+def _write_room_log(product: dict) -> None:
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    entry = (
+        "=====\n"
+        f"日付：{date_str}\n"
+        f"商品名：{product['name']}\n"
+        f"楽天アフィリエイトURL：{product['affiliate_url']}\n"
+        f"画像URL：{product['image_url']}\n"
+        "=====\n"
+    )
+    with open("room_log.txt", "a", encoding="utf-8") as f:
+        f.write(entry)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +57,9 @@ def main():
 
         save_posted_url(product["affiliate_url"])
         log.info(f"投稿済みURLを記録: {product['affiliate_url']}")
+
+        _write_room_log(product)
+        log.info("room_log.txtに記録しました")
 
         log.info("=== 完了 ===")
 
