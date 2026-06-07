@@ -62,7 +62,7 @@ def post_to_instagram(image_path: str, caption: str) -> str:
     container = _post_with_retry(
         "POST",
         f"{BASE_URL}/media",
-        params={
+        data={
             "image_url": image_url,
             "caption": caption,
             "access_token": ACCESS_TOKEN,
@@ -77,7 +77,7 @@ def post_to_instagram(image_path: str, caption: str) -> str:
     publish = _post_with_retry(
         "POST",
         f"{BASE_URL}/media_publish",
-        params={
+        data={
             "creation_id": container_id,
             "access_token": ACCESS_TOKEN,
         },
