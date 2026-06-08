@@ -8,18 +8,19 @@ load_dotenv()
 
 RAKUTEN_API_URL = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706"
 
-# 曜日ごとのジャンルID・フォールバックキーワード（月=0, 火=1, ..., 日=6）
-GENRE_BY_WEEKDAY = {
-    0: ("551177", "抱っこ紐・ベビーカー", "抱っこ紐"),
-    1: ("100804", "ベビー服・子供服", "ベビー服"),
-    2: ("101164", "おもちゃ・知育玩具", "おもちゃ"),
-    3: ("400174", "離乳食・ベビーフード", "離乳食"),
-    4: ("400496", "ベビー用品全般", "ベビー用品"),
-    5: ("516503", "PCガジェット", "キーボード"),
-    6: ("100533", "カメラ", "カメラ"),
+# 曜日ごとの検索キーワード（月=0, 火=1, ..., 日=6）
+KEYWORD_BY_WEEKDAY = {
+    0: "抱っこ紐",
+    1: "ベビー服 男の子",
+    2: "知育おもちゃ",
+    3: "離乳食 グッズ",
+    4: "ベビー用品 便利",
+    5: "キーボード ワイヤレス",
+    6: "ミラーレス カメラ",
 }
 
-# 除外キーワード（例外商品名に含まれる場合はスキップしない）
+FALLBACK_KEYWORD = "育児グッズ"
+
 EXCLUDE_KEYWORDS = ["水", "ミネラルウォーター", "飲料"]
 EXCLUDE_EXCEPTIONS = ["キレートレモン", "北海道コーン茶", "富良野ホップ炭酸水"]
 
@@ -38,18 +39,18 @@ def _fetch_items(params: dict) -> list:
     return resp.json().get("Items", [])
 
 
-def _filter_items(items: list) -> list:
+def _filter_items(items: list, min_review_avg=3.0, min_review_count=5) -> list:
     return [
         item for item in items
-        if item.get("reviewAverage", 0) >= 3.5
-        and item.get("reviewCount", 0) >= 10
+        if item.get("reviewAverage", 0) >= min_review_avg
+        and item.get("reviewCount", 0) >= min_review_count
         and item.get("mediumImageUrls")
         and not _is_excluded(item.get("itemName", ""))
     ]
 
 
 def get_random_baby_product(posted_urls=None):
-    """商品を取得してランダムに1件返す。
+    """商品を取得してランダムに1件返す。必ず1件以上返す。
     posted_urls: 投稿済みURLのset。全件投稿済みの場合はリセットして全件から選ぶ。
     戻り値: (product dict, reset_occurred: bool)
     """
@@ -57,28 +58,42 @@ def get_random_baby_product(posted_urls=None):
         posted_urls = set()
 
     weekday = datetime.now().weekday()
-    genre_id, genre_name, fallback_keyword = GENRE_BY_WEEKDAY[weekday]
+    keyword = KEYWORD_BY_WEEKDAY[weekday]
 
     base_params = {
         "applicationId": os.getenv("RAKUTEN_APP_ID"),
         "affiliateId": os.getenv("RAKUTEN_AFFILIATE_ID"),
         "hits": 30,
         "sort": "-reviewAverage",
-        "minReviewCount": 10,
         "formatVersion": 2,
     }
 
-    # ジャンルID検索
-    items = _fetch_items({**base_params, "genreId": genre_id})
-    filtered = _filter_items(items)
+    # キーワード検索（評価3.0以上・レビュー5件以上）
+    items = _fetch_items({**base_params, "keyword": keyword})
+    filtered = _filter_items(items, min_review_avg=3.0, min_review_count=5)
 
-    # フォールバック：キーワード検索
+    # 条件なしで再検索
+    if not filtered and items:
+        filtered = [
+            item for item in items
+            if item.get("mediumImageUrls")
+            and not _is_excluded(item.get("itemName", ""))
+        ]
+
+    # フォールバック：「育児グッズ」で検索
     if not filtered:
-        items = _fetch_items({**base_params, "keyword": fallback_keyword})
-        filtered = _filter_items(items)
+        items = _fetch_items({**base_params, "keyword": FALLBACK_KEYWORD})
+        filtered = _filter_items(items, min_review_avg=3.0, min_review_count=5)
+
+    # 最終フォールバック：条件なし
+    if not filtered and items:
+        filtered = [
+            item for item in items
+            if item.get("mediumImageUrls")
+        ]
 
     if not filtered:
-        raise ValueError(f"条件に合う商品が見つかりませんでした（カテゴリ：{genre_name}）")
+        raise ValueError("商品が1件も取得できませんでした")
 
     unposted = [
         item for item in filtered
@@ -106,6 +121,6 @@ def get_random_baby_product(posted_urls=None):
         ).replace("128x128", "500x500"),
         "shop_name": item["shopName"],
         "catch_copy": item.get("catchcopy", ""),
-        "genre_name": genre_name,
+        "genre_name": keyword,
     }
     return product, reset_occurred
