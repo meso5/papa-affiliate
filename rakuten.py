@@ -49,16 +49,18 @@ def _filter_items(items: list, min_review_avg=3.0, min_review_count=5) -> list:
     ]
 
 
-def get_random_baby_product(posted_urls=None):
+def get_random_baby_product(posted_urls=None, keyword=None):
     """商品を取得してランダムに1件返す。必ず1件以上返す。
     posted_urls: 投稿済みURLのset。全件投稿済みの場合はリセットして全件から選ぶ。
+    keyword: 検索キーワード。Noneの場合は曜日に応じたキーワードを使用。
     戻り値: (product dict, reset_occurred: bool)
     """
     if posted_urls is None:
         posted_urls = set()
 
-    weekday = datetime.now().weekday()
-    keyword = KEYWORD_BY_WEEKDAY[weekday]
+    if keyword is None:
+        weekday = datetime.now().weekday()
+        keyword = KEYWORD_BY_WEEKDAY[weekday]
 
     base_params = {
         "applicationId": os.getenv("RAKUTEN_APP_ID"),
